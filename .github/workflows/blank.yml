@@ -1,0 +1,68 @@
+name: Kali Linux Native RDP
+# Official Kali Linux Rolling Container with Manual Tailscale & XRDP
+
+on:
+  workflow_dispatch:
+
+jobs:
+  kali-native-rdp:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3600
+
+    container:
+      image: kalilinux/kali-rolling:latest
+      options: --privileged
+
+    steps:
+      - name: Update Kali Repositories & Install Packages
+        run: |
+          apt-get update -y
+          apt-get install -y kali-desktop-xfce xrdp curl sudo net-tools dbus wget
+          
+          # Setup DBUS dan XRDP
+          mkdir -p /var/run/dbus
+          dbus-daemon --system --fork || true
+          echo "xfce4-session" > /root/.xsession
+          /etc/init.d/xrdp start
+
+      - name: Create Kali User
+        run: |
+          useradd -m -s /bin/bash erroorsystem
+          echo "erroorsystem:erroorsystem@123" | chpasswd
+          usermod -aG sudo erroorsystem
+          echo "exec startxfce4" > /home/erroorsystem/.xsession
+          chown erroorsystem:erroorsystem /home/erroorsystem/.xsession
+
+      - name: Install & Start Tailscale Manually
+        run: |
+          # Download binary Tailscale resmi langsung tanpa skrip installer systemd
+          wget -q https://pkgs.tailscale.com/stable/tailscale_1.80.0_amd64.tgz
+          tar xzf tailscale_1.80.0_amd64.tgz
+          cp tailscale_1.80.0_amd64/tailscale /usr/bin/
+          cp tailscale_1.80.0_amd64/tailscaled /usr/sbin/
+          rm -rf tailscale_1.80.0_amd64*
+
+          # Buat direktori state
+          mkdir -p /var/lib/tailscale /run/tailscale
+
+          # Jalankan daemon tailscaled secara langsung di background
+          tailscaled --state=/var/lib/tailscale/tailscaled.state --socket=/run/tailscale/tailscaled.sock > /dev/null 2>&1 &
+          sleep 5
+
+          # Hubungkan ke akun Tailscale menggunakan AuthKey
+          tailscale --socket=/run/tailscale/tailscaled.sock up --authkey=${{ secrets.TAILSCALE_AUTHKEY }} --hostname=kali-cloud-$GITHUB_RUN_ID
+
+      - name: Maintain Connection
+        run: |
+          TS_IP=$(tailscale --socket=/run/tailscale/tailscaled.sock ip -4)
+          echo -e "\n=========================================="
+          echo "   KALI LINUX BERJAYA DIJALANKAN!"
+          echo "   IP Tailscale : $TS_IP"
+          echo "   Username     : erroorsystem"
+          echo "   Password     : erroorsystem@123"
+          echo "=========================================="
+          
+          while true; do
+              sleep 300
+          done
+          
